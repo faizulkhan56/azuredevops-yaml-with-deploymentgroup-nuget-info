@@ -1,5 +1,7 @@
 trigger:
-- main
+  branches:
+    include:
+      - main
 
 pool:
   name: Default
@@ -10,8 +12,10 @@ variables:
   tag: '$(Build.BuildId)'
 
 steps:
+# 1) Checkout source
 - checkout: self
 
+# 2) Build & push Docker image to ACR
 - task: Docker@2
   displayName: 'Build and Push Image to ACR'
   inputs:
@@ -23,17 +27,25 @@ steps:
       $(tag)
       latest
 
+# 3) Trivy scan via Git Bash on Windows
 - task: Bash@3
   displayName: '🛡️ Trivy Vulnerability Scan'
   inputs:
+    # Force use of Git Bash instead of WSL
+    bash: 'C:\Program Files\Git\bin\bash.exe'
     targetType: 'inline'
     script: |
-      # Make sure the staging dir exists
+      # ensure Chocolatey bin (with trivy.exe) is on PATH
+      export PATH="/c/ProgramData/chocolatey/bin:$PATH"
+
+      # prepare staging dir
       mkdir -p "$BUILD_ARTIFACTSTAGINGDIRECTORY"
 
+      # assemble image name
       image="${ACRLOGINSERVER}/${IMAGENAME}:${TAG}"
       echo "Scanning image $image with Trivy…"
 
+      # run Trivy
       trivy image \
         --no-progress \
         --format json \
@@ -42,12 +54,14 @@ steps:
 
       echo "✅ Trivy report at: $BUILD_ARTIFACTSTAGINGDIRECTORY/trivy-report.json"
 
+# 4) Publish the Trivy JSON report as a pipeline artifact
 - task: PublishPipelineArtifact@1
   displayName: '📄 Publish Trivy Report'
   inputs:
     targetPath: '$(Build.ArtifactStagingDirectory)/trivy-report.json'
     artifact: 'trivy-report'
 
+# 5) (Optional) Publish a dummy drop to trigger CD
 - task: PublishBuildArtifacts@1
   displayName: 'Publish dummy artifact to trigger release'
   inputs:
