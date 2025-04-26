@@ -1,23 +1,21 @@
 trigger:
-- main  # or any branch you want to monitor
+- main
 
 pool:
-  name: Default  # your local Windows agent pool
+  name: Default
 
 variables:
-  imageName: 'dotnetapp'                         # your Docker image name
-  acrLoginServer: 'mycompanyacr212.azurecr.io'  # your ACR login server
-  tag: '$(Build.BuildId)'                       # auto-tag with build ID
+  imageName: 'dotnetapp'
+  acrLoginServer: 'mycompanyacr212.azurecr.io'
+  tag: '$(Build.BuildId)'
 
 steps:
-# Optional: Checkout your repo
 - checkout: self
 
-# Build & Push Docker Image to ACR
 - task: Docker@2
-  displayName: Build and Push Image to ACR
+  displayName: 'Build and Push Image to ACR'
   inputs:
-    containerRegistry: 'acr-service-conn'     # must match service connection name
+    containerRegistry: 'acr-service-conn'
     repository: '$(imageName)'
     command: 'buildAndPush'
     Dockerfile: '**/Dockerfile'
@@ -25,10 +23,35 @@ steps:
       $(tag)
       latest
 
-# Publish a dummy artifact to trigger CD pipeline
-- task: PublishBuildArtifacts@1
-  displayName: Publish dummy artifact to trigger release
+- task: Bash@3
+  displayName: '🛡️ Trivy Vulnerability Scan'
   inputs:
-    PathtoPublish: 'README.md'     # or any small file
+    targetType: 'inline'
+    script: |
+      # Make sure the staging dir exists
+      mkdir -p "$BUILD_ARTIFACTSTAGINGDIRECTORY"
+
+      image="${ACRLOGINSERVER}/${IMAGENAME}:${TAG}"
+      echo "Scanning image $image with Trivy…"
+
+      trivy image \
+        --no-progress \
+        --format json \
+        --output "$BUILD_ARTIFACTSTAGINGDIRECTORY/trivy-report.json" \
+        "$image"
+
+      echo "✅ Trivy report at: $BUILD_ARTIFACTSTAGINGDIRECTORY/trivy-report.json"
+
+- task: PublishPipelineArtifact@1
+  displayName: '📄 Publish Trivy Report'
+  inputs:
+    targetPath: '$(Build.ArtifactStagingDirectory)/trivy-report.json'
+    artifact: 'trivy-report'
+
+- task: PublishBuildArtifacts@1
+  displayName: 'Publish dummy artifact to trigger release'
+  inputs:
+    PathtoPublish: 'README.md'
     ArtifactName: 'drop'
     publishLocation: 'Container'
+
