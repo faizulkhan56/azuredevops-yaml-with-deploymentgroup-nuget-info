@@ -27,41 +27,41 @@ steps:
       $(tag)
       latest
 
-# 3) Trivy scan via Git Bash on Windows
-- task: Bash@3
+# 3) Trivy scan using PowerShell
+- task: PowerShell@2
   displayName: '🛡️ Trivy Vulnerability Scan'
   inputs:
-    # Force use of Git Bash instead of WSL
-    bash: 'C:\Program Files\Git\bin\bash.exe'
     targetType: 'inline'
     script: |
-      # ensure Chocolatey bin (with trivy.exe) is on PATH
-      export PATH="/c/ProgramData/chocolatey/bin:$PATH"
+      # 1) Make sure Chocolatey’s bin is on PATH (so trivy.exe is found)
+      $env:PATH = "C:\ProgramData\chocolatey\bin;$env:PATH"
 
-      # prepare staging dir
-      mkdir -p "$BUILD_ARTIFACTSTAGINGDIRECTORY"
+      # 2) Prepare the artifact staging directory
+      if (-not (Test-Path -Path $env:BUILD_ARTIFACTSTAGINGDIRECTORY)) {
+        New-Item -ItemType Directory -Path $env:BUILD_ARTIFACTSTAGINGDIRECTORY | Out-Null
+      }
 
-      # assemble image name
-      image="${ACRLOGINSERVER}/${IMAGENAME}:${TAG}"
-      echo "Scanning image $image with Trivy…"
+      # 3) Build full image name
+      $image = "$($env:ACRLOGINSERVER)/$($env:IMAGENAME):$($env:TAG)"
+      Write-Host "Scanning image $image with Trivy…"
 
-      # run Trivy
-      trivy image \
-        --no-progress \
-        --format json \
-        --output "$BUILD_ARTIFACTSTAGINGDIRECTORY/trivy-report.json" \
-        "$image"
+      # 4) Run the scan and output JSON
+      trivy image `
+        --no-progress `
+        --format json `
+        --output "$($env:BUILD_ARTIFACTSTAGINGDIRECTORY)\trivy-report.json" `
+        $image
 
-      echo "✅ Trivy report at: $BUILD_ARTIFACTSTAGINGDIRECTORY/trivy-report.json"
+      Write-Host "✅ Trivy report generated at $($env:BUILD_ARTIFACTSTAGINGDIRECTORY)\trivy-report.json"
 
-# 4) Publish the Trivy JSON report as a pipeline artifact
+# 4) Publish the Trivy report as a pipeline artifact
 - task: PublishPipelineArtifact@1
   displayName: '📄 Publish Trivy Report'
   inputs:
-    targetPath: '$(Build.ArtifactStagingDirectory)/trivy-report.json'
+    targetPath: '$(Build.ArtifactStagingDirectory)\trivy-report.json'
     artifact: 'trivy-report'
 
-# 5) (Optional) Publish a dummy drop to trigger CD
+# 5) (Optional) Publish dummy artifact to trigger CD
 - task: PublishBuildArtifacts@1
   displayName: 'Publish dummy artifact to trigger release'
   inputs:
