@@ -1,49 +1,32 @@
-# ─────────────── BUILD STAGE ───────────────
+# ───────────── BUILD ─────────────
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
 
-# 1) Copy nuget.config so restore uses your InternalNuGet feed + nuget.org upstream
+# Pull in nuget.config if you have one
 COPY nuget.config .
 
-# 2) Copy solution and project files
-COPY devopswebapp-solution.sln .
-COPY devopswebapp/devopswebapp.csproj    devopswebapp/
-# (optional) if you want to run tests inside the container:
-# COPY devopswebapp.Tests/devopswebapp.Tests.csproj devopswebapp.Tests/
+# Copy your .sln and project(s)
+COPY *.sln .  
+COPY devopswebapp/*.csproj devopswebapp/
 
-# 3) Restore against your private feed (and its upstream)
-RUN dotnet restore devopswebapp-solution.sln --configfile nuget.config
+# Restore using your config
+RUN dotnet restore devopswebapp.sln --configfile nuget.config
 
-# 4) Copy the rest of the source
+# Copy the rest of the code
 COPY . .
 
-# 5) Build the entire solution in Release mode
-RUN dotnet build devopswebapp-solution.sln \
-    --configuration Release \
-    --no-restore
+# Build & test & publish
+RUN dotnet build devopswebapp.sln -c Release
+RUN dotnet test devopswebapp.Tests/devopswebapp.Tests.csproj -c Release --no-build
+RUN dotnet publish devopswebapp/devopswebapp.csproj -c Release -o /app/publish
 
-# 6) (Optional) Run your unit tests
-# RUN dotnet test devopswebapp.Tests/devopswebapp.Tests.csproj \
-#     --configuration Release --no-build \
-#     --logger "trx;LogFileName=test_results.trx"
-
-# 7) Publish only the web-app project into /app/publish
-RUN dotnet publish devopswebapp/devopswebapp.csproj \
-    --configuration Release \
-    --no-restore \
-    --output /app/publish
-
-# ───────────── RUNTIME STAGE ─────────────
+# ───────────── RUNTIME ─────────────
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
 WORKDIR /app
-
-# 8) Copy the published output from the build stage
 COPY --from=build /app/publish .
 
-# 9) Configure ASP.NET Core to listen on port 80
 ENV ASPNETCORE_URLS=http://+:80
 EXPOSE 80
 
-# 10) Launch the app
-ENTRYPOINT ["dotnet", "devopswebapp.dll"]
+ENTRYPOINT ["dotnet","devopswebapp.dll"]
 
